@@ -1,3 +1,5 @@
+from src.extraction.schema import Section
+
 # função para ler o texto 
 
 def read_raw_text(file_path: str) -> str: 
@@ -20,6 +22,8 @@ def remove_dup(text_section : str) -> str:
         normalized_line = line.strip() #.strip vai normalizar a linha ou seja remover " " \n e assim
 
         if(normalized_line in seen):
+            continue
+        if not normalized_line: #ignora linhas vazias
             continue
         else:
             clean_lines.append(normalized_line)
@@ -61,9 +65,9 @@ def find_section_end(text: str, start: int, next_section_number: int) -> int: #p
     return min(end_candidates)
 
 
-def split_sec(text : str) -> dict[str,str]:
+def split_sec(text : str) -> list[Section]:
 
-    section = {}
+    sections = []
     for n in range(1,17):
         
         current_marker = f"SECÇÃO {n}"
@@ -77,22 +81,32 @@ def split_sec(text : str) -> dict[str,str]:
         end = find_section_end(text, start, next_section_number)
 
         if end == -1:
-            section_text = text[start:]
+            sec_text = text[start:]
         else:
-            section_text = text[start:end]
+            sec_text = text[start:end]
 
-        section_text = remove_dup(section_text)
+        sec_text = remove_dup(sec_text)
+        first_line = sec_text.splitlines()[0]
+
+        # remove "SECÇÃO X:" ou "SECÇÃO X"
+        if ":" in first_line:
+            sec_title = first_line.split(":", 1)[1].strip()
+        else:
+            # fallback caso não exista :
+            parts = first_line.split(maxsplit=2)
+            sec_title = parts[-1].strip() if len(parts) >= 3 else first_line.strip()
+
+        sec_number = n
+
+        section_obj = Section(
+            section_number = sec_number,
+            title = sec_title,
+            raw_text = sec_text
+        )
+        sections.append(section_obj)
     
-        section[f"Secção {n}"] = section_text
-    
-    return section
+    return sections
 
 
 text = read_raw_text("output/raw_text.txt")
-dic = split_sec(text)
-
-
-
-# zona de teste 
-
-print(dic.get("Secção 2"))
+sections = split_sec(text)
