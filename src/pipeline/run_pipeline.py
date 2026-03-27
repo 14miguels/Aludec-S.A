@@ -1,8 +1,8 @@
 from src.parsing.pdf_reader import read_raw_text
 from src.schema.schema import Substance
 from src.parsing.text_cleaner import remove_dup
-from src.llm.section_splitter import split_sections
-from src.llm.section3_extractor import extract_substances
+from parsing.section_splitter import split_sections
+from extractors.section3_extractor import extract_substances
 from src.parsing.fallback import split_sec, extract_chemical_components
 from typing import Optional
 from src.schema.schema import Section
