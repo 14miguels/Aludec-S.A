@@ -24,9 +24,28 @@ class Hazard:
     description : Optional[str]
 
 @dataclass
+class PhysicalProperties:
+    state: Optional[str]
+    density: Optional[float]
+    flash_point: Optional[str]
+    voc: Optional[str]
+
+@dataclass
+class TransportInfo:
+    un_number: Optional[str]
+    shipping_name: Optional[str]
+    hazard_class: Optional[str]
+    packing_group: Optional[str]
+    environmental_hazard: Optional[bool]
+
+@dataclass
+class SevesoInfo:
+    category: Optional[str]  
+
+@dataclass
 class ProcessingMetadata:
     """Class para info sobre como o documento foi processado"""
-    extraction_method : Optional[str] #vai me dizer se extraiu com regex/llm/hybrid
+    extraction_method : Optional[str]
     warnings : list[str]
     confidence : Optional[float]
 
@@ -39,4 +58,13 @@ class SDSDocument:
     sections : list[Section]
     substances : list[Substance]
     hazards : list[Hazard]
-    metadata : Optional[ProcessingMetadata]
+    transport: Optional[TransportInfo]
+    seveso: Optional[SevesoInfo]
+    physical_properties: Optional[PhysicalProperties]
+    splitter_metadata : Optional[ProcessingMetadata]
+    substances_metadata : Optional[ProcessingMetadata]
+    hazards_metadata : Optional[ProcessingMetadata]
+    transport_metadata : Optional[ProcessingMetadata]
+    seveso_metadata : Optional[ProcessingMetadata]
+    physical_properties_metadata : Optional[ProcessingMetadata]
+    
