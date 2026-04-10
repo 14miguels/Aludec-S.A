@@ -1,54 +1,104 @@
+import argparse
+import json
+import logging
 from dataclasses import asdict
 from pathlib import Path
-import json
+from typing import List, Tuple
 
 from src.pipeline.run_pipeline import run_pipeline
 
-
-PDFS = [
-    "001.000204.00 -Thinner-V1.04.pdf",
-]
-
-PDFS_DIR = Path("data/raw_pdfs")
-OUTPUT_DIR = Path("data/output")
+logger = logging.getLogger(__name__)
 
 
-def process_pdf(pdf_name: str):
-    pdf_path = PDFS_DIR / pdf_name
+def get_cli_arguments() -> argparse.Namespace:
+    """Build and parse CLI arguments."""
+    parser = argparse.ArgumentParser(
+        description="Extract SDS data from a PDF file or all PDFs in a folder."
+    )
+    parser.add_argument(
+        "--input",
+        "-i",
+        required=True,
+        help="Path to a PDF file or a directory containing PDF files.",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        default="data/output/extraction_results.json",
+        help="Path of the aggregated JSON output file.",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable detailed logging for pipeline progress.",
+    )
+    return parser.parse_args()
 
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    print(f"\n[START] {pdf_name}")
-    doc = run_pipeline(str(pdf_path))
-    print(f"\n[DONE] {pdf_name}")
-    return pdf_name, doc
+def collect_pdf_paths(target: Path) -> List[Path]:
+    """Return a sorted list of PDF files from the provided target path."""
+    if not target.exists():
+        raise ValueError(f"Input path does not exist: {target}")
+
+    if target.is_file():
+        if target.suffix.lower() != ".pdf":
+            raise ValueError(f"Input file must have .pdf extension: {target}")
+        return [target]
+
+    if target.is_dir():
+        pdfs = sorted(p for p in target.glob("*.pdf") if p.is_file())
+        if not pdfs:
+            raise ValueError(f"No PDF files were found inside: {target}")
+        return pdfs
+
+    raise ValueError(f"Unsupported input path type: {target}")
+
+
+def main() -> int:
+    args = get_cli_arguments()
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="[%(levelname)s] %(message)s",
+    )
+
+    try:
+        pdf_paths = collect_pdf_paths(Path(args.input))
+    except ValueError as exc:
+        logger.error(exc)
+        return 1
+
+    logger.info("Found %d PDF(s) to process.", len(pdf_paths))
+    aggregated_results: List[dict] = []
+    failures: List[Tuple[str, str]] = []
+
+    for pdf in pdf_paths:
+        logger.info("Processing pdf: %s", pdf.name)
+        try:
+            sds_document = run_pipeline(pdf)
+            aggregated_results.append(asdict(sds_document))
+        except Exception as exc:
+            failures.append((pdf.name, str(exc)))
+            logger.exception("Failed to process %s", pdf.name)
+
+    output_file = Path(args.output)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    # TODO: integrate Excel export via src/export/ when available.
+    with open(output_file, "w", encoding="utf-8") as file:
+        json.dump(aggregated_results, file, indent=4, ensure_ascii=False)
+
+    processed = len(pdf_paths)
+    succeeded = processed - len(failures)
+    print(f"Processed {processed} PDF(s): {succeeded} succeeded, {len(failures)} failed.")
+    print(f"Saved aggregated results to {output_file}")
+
+    if failures:
+        print("Failed files:")
+        for name, reason in failures:
+            print(f" - {name}: {reason}")
+
+    return 0
 
 
 if __name__ == "__main__":
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    results_by_name = {}
-
-    for pdf_name in PDFS:
-        try:
-            finished_pdf_name, doc = process_pdf(pdf_name)
-            results_by_name[finished_pdf_name] = doc
-        except Exception as e:
-            print(f"[ERROR] Failed to process {pdf_name}: {type(e).__name__}: {e}")
-
-    ordered_results = [results_by_name[pdf_name] for pdf_name in PDFS if pdf_name in results_by_name]
-
-    print("\nAll PDFs processed.")
-    print(f"Total documents processed: {len(ordered_results)}")
-
-    output_file = OUTPUT_DIR / "extraction_results.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump([asdict(doc) for doc in ordered_results], f, indent=2, ensure_ascii=False)
-
-    print(f"Results saved to: {output_file}")
-
-    for i, doc in enumerate(ordered_results, start=1):
-        file_path = OUTPUT_DIR / f"result_{i}.json"
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(asdict(doc), f, indent=2, ensure_ascii=False)
+    raise SystemExit(main())

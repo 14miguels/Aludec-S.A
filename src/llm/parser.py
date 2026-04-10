@@ -153,7 +153,11 @@ def parse_transport_info(response : str) -> TransportInfo | None:
         return None
 
     if isinstance(json_response, dict):
-        json_response = json_response.get("transport_info")
+        candidate = json_response.get("transport_info")
+        if isinstance(candidate, dict):
+            json_response = candidate
+        else:
+            json_response = json_response
 
     if not isinstance(json_response, dict):
         return None
@@ -188,7 +192,11 @@ def parse_seveso_info(response : str) -> SevesoInfo | None:
         return None
 
     if isinstance(json_response, dict):
-        json_response = json_response.get("seveso_info")
+        candidate = json_response.get("seveso_info")
+        if isinstance(candidate, dict):
+            json_response = candidate
+        else:
+            json_response = json_response
 
     if not isinstance(json_response, dict):
         return None
@@ -214,7 +222,11 @@ def parse_physical_properties(response : str) -> PhysicalProperties | None:
         return None
 
     if isinstance(json_response, dict):
-        json_response = json_response.get("physical_properties")
+        candidate = json_response.get("physical_properties")
+        if isinstance(candidate, dict):
+            json_response = candidate
+        else:
+            json_response = json_response
 
     if not isinstance(json_response, dict):
         return None
