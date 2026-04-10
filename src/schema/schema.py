@@ -49,6 +49,21 @@ class ProcessingMetadata:
     warnings : list[str]
     confidence : Optional[float]
 
+@dataclass
+class UsageRecord:
+    reference: str
+    designation: str
+
+    tipo_utilizacao: Optional[str]
+    local_utilizacao: Optional[str]
+
+    consumo_anual: Optional[float]
+    capacidade_armazenamento: Optional[float]
+
+    fornecedor: Optional[str]
+    data: Optional[str]
+
+    sds_id : Optional[str] #ligação ao sds document
 
 @dataclass
 class SDSDocument:
@@ -68,3 +83,5 @@ class SDSDocument:
     seveso_metadata : Optional[ProcessingMetadata]
     physical_properties_metadata : Optional[ProcessingMetadata]
     
+
+

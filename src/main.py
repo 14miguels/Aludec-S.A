@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from src.pipeline.run_pipeline import run_pipeline
+from src.db.db import init_db, save_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,11 @@ def main() -> int:
         level=logging.INFO if args.verbose else logging.WARNING,
         format="[%(levelname)s] %(message)s",
     )
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+    init_db()
 
     try:
         pdf_paths = collect_pdf_paths(Path(args.input))
@@ -73,9 +79,12 @@ def main() -> int:
     failures: List[Tuple[str, str]] = []
 
     for pdf in pdf_paths:
-        logger.info("Processing pdf: %s", pdf.name)
+        logger.info("Running pipeline for: %s", pdf.name)
         try:
             sds_document = run_pipeline(pdf)
+
+            save_extraction(file_name=pdf.name, pdf_path=str(pdf), extracted_json=asdict(sds_document))
+            
             aggregated_results.append(asdict(sds_document))
         except Exception as exc:
             failures.append((pdf.name, str(exc)))
