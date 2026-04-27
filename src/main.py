@@ -56,6 +56,39 @@ def collect_pdf_paths(target: Path) -> List[Path]:
     raise ValueError(f"Unsupported input path type: {target}")
 
 
+def has_llm_failure(result_json: dict) -> bool:
+    """Return True when extraction failed or used fallback (non-LLM).
+
+    Note: Section splitting fallback (regex) is allowed and does not block saving.
+    """
+    metadata_keys = [
+        "substances_metadata",
+        "hazards_metadata",
+        "transport_metadata",
+        "seveso_metadata",
+        "physical_properties_metadata",
+    ]
+
+    for key in metadata_keys:
+        metadata = result_json.get(key) or {}
+        extraction_method = metadata.get("extraction_method")
+        warnings = metadata.get("warnings") or []
+
+        # Only allow pure LLM extractions
+        if extraction_method != "LLM":
+            return True
+
+        # Any failure or fallback warning invalidates the extraction
+        if any(
+            "failed" in str(warning).lower()
+            or "fallback" in str(warning).lower()
+            for warning in warnings
+        ):
+            return True
+
+    return False
+
+
 def main() -> int:
     args = get_cli_arguments()
     logging.basicConfig(
@@ -82,10 +115,24 @@ def main() -> int:
         logger.info("Running pipeline for: %s", pdf.name)
         try:
             sds_document = run_pipeline(pdf)
+            result_json = asdict(sds_document)
 
-            save_extraction(file_name=pdf.name, pdf_path=str(pdf), extracted_json=asdict(sds_document))
-            
-            aggregated_results.append(asdict(sds_document))
+            if has_llm_failure(result_json):
+                failures.append((pdf.name, "LLM extraction failed or fallback was used"))
+                logger.warning(
+                    "Skipping database save for %s because LLM extraction failed or fallback was used.",
+                    pdf.name,
+                )
+                continue
+
+            extraction_id = save_extraction(
+                file_name=pdf.name,
+                pdf_path=str(pdf),
+                extracted_json=result_json,
+            )
+            logger.info("Extraction saved with ID: %s", extraction_id)
+
+            aggregated_results.append(result_json)
         except Exception as exc:
             failures.append((pdf.name, str(exc)))
             logger.exception("Failed to process %s", pdf.name)

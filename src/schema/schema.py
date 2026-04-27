@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -14,6 +14,7 @@ class Substance:
     """Class para representar uma substância quimica"""
     name : str
     cas_number : Optional[str]
+    ce_number : Optional[str]
     percentage : Optional[str]
 
 
@@ -64,6 +65,15 @@ class UsageRecord:
     data: Optional[str]
 
     sds_id : Optional[str] #ligação ao sds document
+    
+@dataclass
+class DocumentMetadata:
+    product_name : str = ""
+    product_code : str = ""
+    supplier: str = ""
+    revision_date : str = ""
+    version : str = ""
+    language : str = ""
 
 @dataclass
 class SDSDocument:
@@ -82,6 +92,8 @@ class SDSDocument:
     transport_metadata : Optional[ProcessingMetadata]
     seveso_metadata : Optional[ProcessingMetadata]
     physical_properties_metadata : Optional[ProcessingMetadata]
+    document_metadata : DocumentMetadata = field(default_factory = DocumentMetadata)
+
     
 
 

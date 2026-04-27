@@ -1,4 +1,4 @@
-from src.schema.schema import Section, Substance, Hazard, TransportInfo, SevesoInfo, PhysicalProperties
+from src.schema.schema import Section, Substance, Hazard, TransportInfo, SevesoInfo, PhysicalProperties, DocumentMetadata
 import json
 
 def parse_sections(response : str) -> list[Section]:
@@ -80,12 +80,14 @@ def parse_substances(response : str) -> list[Substance]:
             sub_name = "" if sub_name is None else str(sub_name)
 
         sub_cas = sub.get("cas_number")
+        sub_ce = sub.get("ce_number")
         sub_percentage = sub.get("percentage")
 
         substance = Substance(
-            name= sub_name,
-            cas_number= sub_cas,
-            percentage= sub_percentage
+            name=sub_name,
+            cas_number=sub_cas,
+            ce_number=sub_ce,
+            percentage=sub_percentage
         )
 
         substances.append(substance)
@@ -241,4 +243,39 @@ def parse_physical_properties(response : str) -> PhysicalProperties | None:
         density=pro_density,
         flash_point=pro_flash_point,
         voc=pro_voc
+    )
+
+
+def parse_document_metadata(response: str) -> DocumentMetadata:
+
+    if response is None:
+        return DocumentMetadata()
+
+    response = response.strip()
+
+    if response == "":
+        return DocumentMetadata()
+
+    try:
+        json_response = json.loads(response)
+    except json.JSONDecodeError:
+        return DocumentMetadata()
+
+    if not isinstance(json_response, dict):
+        return DocumentMetadata()
+
+    product_name = json_response.get("product_name") or ""
+    product_code = json_response.get("product_code") or ""
+    supplier = json_response.get("supplier") or ""
+    revision_date = json_response.get("revision_date") or ""
+    version = json_response.get("version") or ""
+    language = json_response.get("language") or ""
+
+    return DocumentMetadata(
+        product_name=product_name,
+        product_code=product_code,
+        supplier=supplier,
+        revision_date=revision_date,
+        version=version,
+        language=language
     )

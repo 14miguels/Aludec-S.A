@@ -1,14 +1,17 @@
 from src.parsing.pdf_reader import read_raw_text
 from src.schema.schema import Substance, SDSDocument
-from src.parsing.text_cleaner import remove_dup
+from src.parsing.text_cleaner import clean_raw_text
 from src.parsing.section_splitter import split_sections
 from src.extractors.section3_extractor import extract_substances
+from src.llm.substances_verifier import verify_substances_with_llm
 from src.parsing.fallback import split_sec, extract_chemical_components
 from src.pipeline.helpers.metadata_builder import init_metadata,init_sds, confidence_substances, validation_substances, confidence_hazards, validation_hazards, confidence_physical_properties, confidence_seveso, confidence_transport, validation_physical_properties, validation_seveso, validation_transport
 from src.extractors.section2_extractor import extract_hazards
 from src.extractors.section9_extractor import extract_section9
 from src.extractors.section14_extractor import extract_section14
 from src.extractors.section15_extractor import extract_section15
+
+from src.extractors.document_metadata_extractor import extract_document_metadata
 
 import logging
 from typing import Optional
@@ -25,6 +28,48 @@ def find_section(sections: list[Section], number: int) -> Optional[Section]:
     
     return None
 
+
+# Helper to preserve CE numbers after LLM verifier
+def preserve_ce_numbers(original_substances: list[Substance], verified_substances: list[Substance]) -> list[Substance]:
+    """Preserve CE numbers after the LLM verifier.
+
+    The Section 3 extractor may extract ce_number, but the verifier can return
+    corrected Substance objects without carrying that field. This function copies
+    CE numbers from the original extraction into the verified result by matching
+    first by CAS number and then by normalized name.
+    """
+    ce_by_cas = {}
+    ce_by_name = {}
+
+    for substance in original_substances or []:
+        ce_number = getattr(substance, "ce_number", None)
+
+        if not ce_number:
+            continue
+
+        cas_number = (getattr(substance, "cas_number", None) or "").strip()
+        name = (getattr(substance, "name", None) or "").strip().lower()
+
+        if cas_number:
+            ce_by_cas[cas_number] = ce_number
+
+        if name:
+            ce_by_name[name] = ce_number
+
+    for substance in verified_substances or []:
+        if getattr(substance, "ce_number", None):
+            continue
+
+        cas_number = (getattr(substance, "cas_number", None) or "").strip()
+        name = (getattr(substance, "name", None) or "").strip().lower()
+
+        if cas_number and cas_number in ce_by_cas:
+            substance.ce_number = ce_by_cas[cas_number]
+        elif name and name in ce_by_name:
+            substance.ce_number = ce_by_name[name]
+
+    return verified_substances
+
 def run_pipeline(pdf_path: str) -> SDSDocument:
     """Run the full SDS extraction pipeline and return the extracted SDS document."""
     file_name = Path(pdf_path).name
@@ -39,7 +84,7 @@ def run_pipeline(pdf_path: str) -> SDSDocument:
     logger.info("Starting SDS extraction pipeline for %s", file_name)
 
     raw_text = read_raw_text(pdf_path)
-    text = remove_dup(raw_text)
+    text = clean_raw_text(raw_text, remove_duplicates=False)
     
 
     #======================================== SECÇÃO SPLIT ========================================#
@@ -60,6 +105,30 @@ def run_pipeline(pdf_path: str) -> SDSDocument:
         metadata_splitter.warnings.append("Section splitter failed")
         logger.error("Step 1: Section splitter failed")
         return sds_document
+
+    #======================================== DOCUMENT METADATA ========================================#
+    section_1 = find_section(sections, 1)
+    section_2 = find_section(sections, 2)
+    section_16 = find_section(sections, 16)
+
+    metadata_text_parts = []
+
+    if section_1 is not None:
+        metadata_text_parts.append(section_1.raw_text)
+    else:
+        logger.warning("Step 1.1: Failed to find section 1 for document metadata")
+
+    if section_2 is not None:
+        metadata_text_parts.append(section_2.raw_text)
+
+    if section_16 is not None:
+        metadata_text_parts.append(section_16.raw_text)
+
+    metadata_text = "\n\n".join(metadata_text_parts)
+
+    logger.info("Step 1.1: Extracting document metadata with LLM")
+    document_metadata = extract_document_metadata(metadata_text)
+    logger.info("Step 1.1: Document metadata extraction completed")
     
     #======================================== SECÇÃO 2 ========================================#
 
@@ -94,17 +163,27 @@ def run_pipeline(pdf_path: str) -> SDSDocument:
         return sds_document
     
     logger.info("Step 3: Extracting substances from Section 3 with LLM")
-    # extract_substances expects the section text (str), not the Section object
     substances = extract_substances(section_3.raw_text)
 
-    #fall-back caso llm falhex
     if not substances:
         substances = extract_chemical_components(section_3)
         metadata_substances.extraction_method = "Regex"
-        logger.warning("Step 3: LLM extraction failed. Falling back to heuristic parser")
+        metadata_substances.warnings.append("Failed to use LLM")
+        logger.warning("Step 3: LLM extraction failed. Falling back to legacy heuristic parser")
     else:
         metadata_substances.extraction_method = "LLM"
         logger.info("Step 3: Substance extraction succeeded")
+
+        logger.info("Step 3.1: Verifying substances with LLM")
+        original_substances = substances
+        substances, verifier_warnings = verify_substances_with_llm(section_3.raw_text, substances)
+        substances = preserve_ce_numbers(original_substances, substances)
+        metadata_substances.warnings.extend(verifier_warnings)
+
+        if verifier_warnings:
+            logger.warning("Step 3.1: Substance verifier completed with warnings")
+        else:
+            logger.info("Step 3.1: Substance verifier succeeded")
   
     metadata_substances.confidence = round(confidence_substances(substances)*100,1)
     metadata_substances.warnings.extend(validation_substances(substances))
@@ -181,6 +260,7 @@ def run_pipeline(pdf_path: str) -> SDSDocument:
     return SDSDocument(
         file_name=file_name,
         language=None,
+        document_metadata=document_metadata,
         sections=sections,
         substances=substances,
         hazards=hazards,
